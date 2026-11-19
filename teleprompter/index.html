@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d0c0a">
+<title>Voice Teleprompter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: full-height dark stage, script scrolls past a fixed reading line at 35% height; controls float at the top and fade while reading. Single dark look by choice, like studio prompters. */
+:root {
+  color-scheme: dark;
+  --stage: #0d0c0a;
+  --ink: #f4efe6;
+  --ink-read: #6f685d;
+  --cue: #8f8676;
+  --dawn: #e8a54b;
+  --panel: #1a1815;
+  --panel-line: #2e2a24;
+  --font-read: "Atkinson Hyperlegible", "Verdana", "Segoe UI", sans-serif;
+  --font-ui: "Inter", "Segoe UI", system-ui, sans-serif;
+  --size: 44px;
+}
+html, body { height: 100%; }
+body { background: var(--stage); color: var(--ink); font-family: var(--font-ui); overflow: hidden; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--stage); }
+
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+/* Controls */
+#bar {
+  position: absolute; z-index: 5; left: 0; right: 0; top: 0;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px)); padding-bottom: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+  background: linear-gradient(var(--stage) 70%, transparent);
+  transition: opacity .4s ease;
+}
+body.running.idle #bar { opacity: 0; pointer-events: none; }
+.group { display: flex; align-items: center; gap: 6px; }
+button, .seg label {
+  font: 500 14px/1 var(--font-ui); color: var(--ink); background: var(--panel);
+  border: 1px solid var(--panel-line); border-radius: 8px; padding: 9px 12px; cursor: pointer;
+}
+button:hover, .seg label:hover { border-color: var(--cue); }
+button:focus-visible, .seg input:focus-visible + label, input[type=range]:focus-visible { outline: 2px solid var(--dawn); outline-offset: 2px; }
+#go { background: var(--dawn); color: #1b1305; border-color: var(--dawn); font-weight: 600; min-width: 132px; }
+#go.on { background: transparent; color: var(--dawn); }
+.seg { display: inline-flex; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { border-radius: 0; }
+.seg label:first-of-type { border-radius: 8px 0 0 8px; }
+.seg label:last-of-type { border-radius: 0 8px 8px 0; border-left: 0; }
+.seg input:checked + label { background: var(--panel-line); color: var(--dawn); }
+.lbl { font-size: 12px; color: var(--cue); letter-spacing: .04em; text-transform: uppercase; }
+input[type=range] { accent-color: var(--dawn); width: 110px; }
+#status { font-size: 13px; color: var(--cue); flex-basis: 100%; min-height: 1em; }
+#status.warn { color: var(--dawn); }
+#heard { color: var(--ink-read); font-style: italic; }
+
+/* Stage */
+#stage { flex: 1; overflow-y: auto; scrollbar-width: none; }
+#stage::-webkit-scrollbar { display: none; }
+#script {
+  max-width: 30ch; margin: 0 auto; font-family: var(--font-read); font-size: var(--size); line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40vh 70vh;
+}
+body.mirror #script { transform: scaleX(-1); }
+#script p { margin: 0 0 1.1em; }
+#script .ln { display: block; }
+#script .quote { font-style: italic; padding-left: .6em; border-left: 3px solid var(--panel-line); }
+#script h2 { font: 600 .42em/1.2 var(--font-ui); color: var(--dawn); letter-spacing: .12em; text-transform: uppercase; margin: 2.2em 0 1em; }
+#script .cue { font: italic 400 .45em/1.2 var(--font-ui); color: var(--cue); text-align: center; margin: .2em 0 1.4em; letter-spacing: .08em; }
+.w { transition: color .25s ease; cursor: pointer; border-radius: 4px; }
+.w.read { color: var(--ink-read); }
+.w.now { color: var(--dawn); }
+
+#guide { position: absolute; left: 0; right: 0; top: 35%; height: 0; border-top: 1px dashed rgba(232,165,75,.35); pointer-events: none; }
+#guide::before { content: "▶"; position: absolute; left: max(6px, env(safe-area-inset-left, 0px)); top: -.75em; color: var(--dawn); font-size: 18px; opacity: .8; }
+#progress { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--dawn); width: 0; transition: width .3s; margin-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* Editor */
+#editor { position: absolute; inset: 0; z-index: 20; background: rgba(13,12,10,.96); display: flex; flex-direction: column; gap: 12px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px)); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+#editor h1 { font: 600 18px/1.3 var(--font-ui); margin: 0; }
+#editor p { margin: 0; color: var(--cue); font-size: 14px; line-height: 1.5; max-width: 70ch; }
+#editor code { color: var(--dawn); }
+#src { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; background: var(--panel); color: var(--ink); border: 1px solid var(--panel-line); border-radius: 8px; padding: 14px; font: 15px/1.55 ui-monospace, Menlo, Consolas, monospace; resize: none; }
+#editor .row { display: flex; flex-wrap: wrap; gap: 8px; }
+#save { background: var(--dawn); color: #1b1305; border-color: var(--dawn); font-weight: 600; }
+
+@media (max-width: 600px) {
+  :root { --size: 30px; }
+  input[type=range] { width: 80px; }
+}
+@media (prefers-reduced-motion: reduce) { .w, #progress, #bar { transition: none; } }
+[hidden]{display:none!important}
+body{margin:0}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="bar">
+    <button id="go" type="button">Start</button>
+    <div class="seg" role="radiogroup" aria-label="Scroll mode">
+      <input type="radio" name="mode" id="m-voice" value="voice" checked><label for="m-voice">Follow my voice</label>
+      <input type="radio" name="mode" id="m-auto" value="auto"><label for="m-auto">Auto scroll</label>
+    </div>
+    <div class="group" id="speedGroup"><span class="lbl">Speed</span><input type="range" id="speed" min="10" max="160" value="45" aria-label="Auto scroll speed"></div>
+    <div class="group"><span class="lbl">Size</span><input type="range" id="size" min="22" max="90" value="44" aria-label="Text size"></div>
+    <div class="group">
+      <button id="top" type="button" title="Back to the start (Home)">⟲ Top</button>
+      <button id="mirror" type="button" aria-pressed="false">Mirror</button>
+      <button id="full" type="button">Full screen</button>
+      <button id="edit" type="button">Edit script</button>
+    </div>
+    <div id="status" role="status"></div>
+  </div>
+  <div id="stage"><div id="script"></div></div>
+  <div id="guide" aria-hidden="true"></div>
+  <div id="progress" aria-hidden="true"></div>
+
+  <div id="editor" hidden>
+    <h1>Edit script</h1>
+    <p>Paste or type your script. Each line is one breath. Leave a blank line between paragraphs. A line starting with <code>#</code> is a section heading, <code>&gt;</code> marks a quote, and a line in brackets like <code>[PAUSE]</code> is a reminder that isn't read aloud. Your edits stay in this browser.</p>
+    <textarea id="src" spellcheck="false" aria-label="Script text"></textarea>
+    <div class="row">
+      <button id="save" type="button">Use this script</button>
+      <button id="cancel" type="button">Cancel</button>
+      <button id="restore" type="button">Restore Episode 1</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_SCRIPT = "# OPENING\n\nRead.\nIn the name of your Lord who created —\ncreated man from a clinging substance.\nRecite, and your Lord is the Most Generous —\nHe who taught by the pen —\ntaught man that which he knew not.\n\n[PAUSE]\n\nThese were the first words revealed to a man\nthat would change the face of the earth.\nThat would take history on a new course —\na course that the oppressed world\nand its inhabitants were not familiar with.\n\nThese were the first words\nreconnecting the earth to the heavens.\nReconnecting the lost to the Guidance.\nReconnecting the creation to their Creator.\n\n[BEAT]\n\nThese were the first words of the Holy Quran —\nrevealed to the last and final\nProphet and Messenger,\nthe Blessed Prophet Muhammad,\npeace and blessings be upon him.\n\n[PAUSE]\n\nWho is the Prophet Muhammad,\npeace be upon him?\n\nAnd what a heavy question that is to be asked.\nAnd how heavy of an answer it demands.\n\n[LET IT LAND]\n\nIf only they knew.\n\n# WHO IS THE PROPHET\n\nWhen Shaykh al-Islam, al-Qadi Iyad,\nwas asked to write about the Prophet Muhammad,\npeace and blessings be upon him, he said:\n\n> So know —\n> may Allah have mercy on you —\n> that you have burdened me\n> with a very difficult task.\n> You have confronted me\n> with a momentous undertaking\n> which fills my heart with trepidation.\n\nAnd what an accurate description that is.\nBut I will try my best.\n\n[PAUSE]\n\nThe Prophet Muhammad, peace be upon him,\nis the final Prophet and Messenger\nthat Allah, Subhanahu wa Ta'ala,\nsent to all His creation\nuntil the end of time.\n\nHe was one of the noble men sent initially\nto his people —\nthe tribe of Quraysh in Mecca.\nHe called them to the worship and submission\nof the one true Lord, Allah.\nAnd to leave off their worship of idols\nmade of rocks and stones\nthat could neither harm them nor benefit them.\n\nHe called them to leave off\ntheir acts of oppression\ntoward themselves and toward others.\nHe called them away from their arrogance,\ntheir tribalism, their racism,\nand their polytheism.\n\n[PAUSE]\n\nThe Prophet Muhammad, peace be upon him,\nwas no stranger to the Meccans.\nIn fact, he lived amongst them for 40 years.\nHe was a nobleman\nfrom the family of the ruling tribe.\n\nThe Meccans had nicknamed him as-Sadiq al-Ameen —\nthe Truthful and the Trustworthy.\nThat was, of course,\nbefore he called them away\nfrom their dark and pagan ways…\nto the justice of Islam.\n\n[PAUSE]\n\nFast forward through the most beautiful\nand revolutionary life story ever recorded\nin human history —\nthe Seerah of the Prophet Muhammad,\nwhich we will cover in the near future,\ninsha'Allah.\n\nIslam spread far and wide,\nto all corners of the world.\n\n# PART 2  ·  HOW THE WEST FRAMED ISLAM\n\nFrom the time of the Crusades,\nthrough the age of colonialism,\nup until our modern age,\nIslam has been portrayed by the Western world\nas a religion of barbarian savages.\nA religion that teaches its adherents\nto wreak havoc,\nkill innocents,\nand spread corruption in the land.\n\n[PAUSE]\n\nThis propaganda was initially pushed\nby Pope Urban II.\nOn the 27th of November, 1095,\nat the Council of Clermont,\nhe is recorded to have said:\n\n> From the confines of Jerusalem\n> and from the city of Constantinople\n> a grievous report has gone forth\n> and has repeatedly been brought to our ears.\n> Namely that a race from the kingdom of the Persians,\n> an accursed race,\n> a race wholly alienated from God,\n> a generation that set not their heart aright\n> and whose spirit was not steadfast with God,\n> violently invaded the lands of those Christians\n> and has depopulated them by pillage and fire.\n> They have killed by cruel torture.\n> They destroyed the altars\n> after having defiled them with their uncleanness.\n\n[BEAT]\n\nAnd how terrible of a lie this was.\n\nIf only they knew.\n\nLet me tell you what really happened.\n\n[PAUSE]\n\nSome 457 years before that lie from the Pope…\nJerusalem surrendered to the 2nd Caliph,\nUmar ibn al-Khattab,\nin 638 of the Common Era.\n\nHe entered the city on foot\nas a gesture of humility.\nThere was no bloodshed.\nOn the contrary —\nthose who wanted to leave\nwere allowed to do so\nwith all their possessions,\nand were guaranteed safe passage.\nThose who wanted to stay\nwere granted protection\nfor their lives, their property,\nand their places of worship.\nListen Carefully…\n\n[PAUSE]\n\n[ON SCREEN / READ SLOWLY]\n\nThe Covenant of Umar, may Allah be pleased with him.\n\n# THE COVENANT OF UMAR\n\n> In the Name of Allah, the Most Merciful,\n> the Most Compassionate.\n\n> This is an assurance of peace and protection\n> given by the servant of Allah,\n> Umar, Commander of the Believers,\n> to the people of Iliya —\n> Jerusalem.\n\n> He gave them an assurance of protection\n> for their lives, property, churches and crosses,\n> as well as the sick and the healthy,\n> and all its religious community.\n\n> Their churches shall not be occupied, demolished,\n> nor taken away wholly or in part.\n> None of their crosses nor property shall be seized.\n> They shall not be coerced in their religion,\n> nor shall any of them be injured.\n\n> The people of Iliya shall pay the jizya\n> as inhabitants of cities do.\n\n> Whoever goes out shall be guaranteed safety\n> for his life and property\n> until he reaches his safe haven.\n> Whoever stays shall also be safe,\n> in which case he shall pay as much tax\n> as the people of Iliya do.\n\n> Should any of the people of Iliya\n> wish to move together with their property\n> along with the Romans,\n> and to leave their churches and crosses,\n> they shall be guaranteed safety for their lives,\n> churches and crosses,\n> until they have reached their safe haven.\n\n> Whoever chooses to stay may do so,\n> and he shall pay as much tax\n> as the people of Iliya do.\n> Whoever wishes to move along with the Romans\n> may do so.\n> And whoever wishes to return home\n> to his kinsfolk may do so.\n\n> Nothing shall be taken from them\n> until their crops have been harvested.\n\n> To the contents of this covenant are given\n> the covenant of Allah,\n> the guarantees of His Messenger,\n> the Caliphs and the Believers —\n> provided they pay their due jizya.\n\n> Witnesses hereto are:\n> Khalid ibn al-Walid, Abd al-Rahman ibn Awf,\n> Amr ibn al-As, and Muawiyah ibn Abi Sufyan.\n> Made and executed in the year 15 after the Hijrah.\n\n[HOLD]\n\n# FROM THE CRUSADES TO COLONIALISM\n\nThe military and theological energy\nof the Crusades\nlargely exhausted itself\nby the late 13th century.\nThe Latin states in the Levant collapsed.\nThe idea of a permanent Christian reconquest\nof Jerusalem faded.\nAnd Europe turned inward —\ntoward dynastic wars, the Renaissance,\nthe Reformation,\nand the consolidation of centralized states.\n\nContact with the Islamic world never disappeared.\nTrade, diplomacy,\nand conflict with the Ottomans continued.\nBut the framing shifted.\n\nBy the 18th,\nand especially the 19th century,\nas European technology, military,\nand industrial power surged —\nand the Ottoman Empire\nentered a prolonged decline —\nWestern powers,\nBritain, France, Russia and others,\nmoved from episodic religious warfare\nto systematic territorial,\neconomic,\nand administrative control over Muslim lands.\nNorth Africa.\nEgypt.\nThe Levant.\nThe Arabian Peninsula.\nIndia.\nAnd Southeast Asia.\n\nThe old language of holy war\nagainst the infidel\ndid not vanish.\nBut a newer, more secular vocabulary\nwas introduced:\nprogress.\nCivilization.\nFree trade.\nThe civilizing mission.\n\nIslam was still treated as the main problem —\nand the catalyst of the colonial project.\n\n[PAUSE]\n\nWinston Churchill,\nformer Prime Minister of the United Kingdom,\nis a clear example\nof the colonizers' hatred toward Islam.\nOn his Sudan campaign, he said:\n\n> How dreadful are the curses\n> which Mohammedanism lays on its votaries.\n> Besides the fanatical frenzy,\n> which is as dangerous in a man\n> as hydrophobia in a dog,\n> there is this fearful fatalistic apathy.\n> The effects are apparent\n> in many of the Muslim races,\n> and their imperfect education,\n> their indolence and their backwardness.\n> Individual Moslem may show splendid qualities…\n> but the influence of the religion\n> paralyses the social development\n> of those who follow it.\n> No stronger retrograde force exists in the world.\n\n[PAUSE]\n\nFormer Prime Minister of France, Jules Ferry,\nshowed the same arrogance\nwhen he stated frankly:\n\n> The superior races have a right\n> because they have a duty.\n> They have the duty to civilize the inferior races.\n> In the history of colonial policy,\n> we have seen the inferior races\n> conquered by the superior races.\n\nAnd that included the Muslim populations.\n\nStatements like these are many.\nThe justification of colonial rule\nwas built on Islamophobia,\nbigotry, and flat-out lies.\n\n# THE MODERN AGE\n\nFormal European colonial rule\nover most Muslim lands\nlargely ended\nbetween the late 1940s and early 1970s —\nthrough a mix of negotiated independence,\nwars of liberation,\nand the post-World War II exhaustion\nof the old empires.\n\nBritain, France, the Netherlands and others\nwithdrew from India, Pakistan, Indonesia,\nNorth Africa, the Middle East,\nand much of sub-Saharan Africa.\n\nWhat remained was not direct territorial control,\nbut a new form of control from behind the veil:\npuppet regimes, oil economics,\ndevelopment aid, military bases,\ncultural influence…\nand after 1979, and especially after 2001,\na heavy focus on security.\n\n[PAUSE]\n\nIn this so-called post-colonial world,\nIslam was still the enemy.\nThe Western world no longer primarily justified\nruling Muslims “for their own good.”\nInstead, it increasingly framed Islam —\nthrough terms like radical Islam,\nIslamism, or political Islam —\nas a threat to Western security,\nvalues, or social cohesion.\n\nExamples of the West undermining Islam\nand justifying invasion of Muslim lands are many.\n\nGeorge W. Bush,\nthe 43rd President of the United States,\nstated:\n\n> 60 years of Western nations\n> excusing and accommodating\n> the lack of freedom in the Middle East\n> did nothing to make us safer,\n> because in the long run\n> stability cannot be purchased\n> at the expense of liberty.\n> As long as the Middle East remains a place\n> where freedom does not flourish,\n> it will remain a place of stagnation,\n> resentment and violence\n> ready for export.\n\nHere he correlates Islam with a lack of freedom.\nHe suggests that Islam removes liberty\nfrom the people —\nand therefore the United States\nmust “spread democracy”\nto save those poor, uncivilized Muslims.\n\nHe also said:\n\n> We are led by events and common sense\n> to one conclusion:\n> The survival of liberty in our land\n> increasingly depends\n> on the success of liberty in other lands.\n> The best hope for peace in our world\n> is the expansion of freedom in all the world.\n> So it is the policy of the United States\n> to seek and support the growth\n> of democratic movements and institutions\n> in every nation and culture,\n> with the ultimate goal\n> of ending tyranny in our world.\n\n[PAUSE]\n\nIn the modern age,\n“spreading democracy”\nreplaced the colonial slogan\nof “civilizing the savages.”\n\nThe words changed.\nThe results did not.\nNations conquered.\nMillions killed.\nWomen raped.\nChildren left as orphans and refugees.\nAll in the name of spreading democracy and freedom.\n\n# CLOSING\n\nHave you noticed a pattern?\n\n[SHORT]\n\nDuring the Crusades,\nIslam was the savage infidel to be crushed.\n\nIn the colonial age,\nIslam was the backward way of life\nthat the white man needed to civilize.\n\nIn the modern age, Islam is intolerant,\noppresses women, is violent —\nand is the excuse to “spread democracy.”\n\n[PAUSE]\n\nThe language changed over time.\nThe objective did not.\n\nThey viewed an entire civilization\nas a straw-manned enemy,\nand projected all of their own evils onto it.\n\nThe same Western world\nthat portrays Islam as terrorism…\npropagated the Crusades.\n\nThe same West that called Islam backward…\nenslaved whole nations and stripped them\nof their resources.\n\nThe same West that calls Islam violent…\nmurdered millions\nof Muslims and non-Muslims alike —\nin the name of spreading democracy.\n\n[LET IT LAND]\n\nNow compare that to what the Prophet Muhammad,\npeace be upon him, taught the world.\n\n[PAUSE]\n\nHe taught that the strongest person\nis not the one who can out-wrestle others.\nIt is the one who controls himself in anger.\n\nHe taught that one soul killed unjustly\nis as if you have killed all of humanity.\n\nHe taught that in war, non-combatants —\nwomen, children, and worshippers —\nare not to be killed.\nTrees are not to be cut.\nAnimals are not to be killed for no reason.\n\nHe taught that there is no virtue\nof an Arab over a non-Arab,\nof a white man over a Black man,\nor a Black man over a white man —\nexcept by taqwa:\nGod-consciousness and virtue.\n\nHe taught that justice is not optional.\n\nIn the Quran, chapter 4, verse 135,\nAllah says:\n\n> O you who have believed,\n> be persistently standing firm in justice,\n> witnesses for Allah,\n> even if it be against yourselves\n> or parents and relatives.\n\n[PAUSE]\n\nThe teachings of Islam are unparalleled —\nsuperior in morality and in conduct.\n\n[SHORT]\n\nDoes this sound like savagery to you?\n\nDoes this sound like oppression to you?\n\nDoes this sound like terrorism to you?\n\n[HOLD]\n\nIf only they knew.\n\n# OUTRO\n\nIf you enjoyed and benefited from this episode,\nlike the video, comment below,\nand share it with your family and friends.\n\nThis was the first episode of If Only They Knew.\nI'm Khalid Galal\n\nAs-salamu alaykum wa rahmatullahi wa barakatuh.\n\n[END CARD / SALAWAT]";
+
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("tp:" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("tp:" + k, JSON.stringify(v)); } catch {} }
+};
+
+let scriptText = store.get("script", DEFAULT_SCRIPT);
+let words = [];      // {el, norm}
+let pos = 0;         // index of the next word to be read
+let running = false;
+let mode = store.get("mode", "voice");
+let speed = store.get("speed", 45);
+let size = store.get("size", window.innerWidth < 600 ? 30 : 44);
+let mirror = store.get("mirror", false);
+let dict = null, dictReady = false, wakeLock = null;
+
+const STOP = new Set("a an the and or of to in on at by for is was are be as it its that this with from his him he her she they them their you your we our i my me so but not no if all".split(" "));
+
+const norm = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’']/g, "").replace(/[^a-z0-9]/g, "");
+
+function render() {
+  const root = $("script");
+  root.textContent = "";
+  words = [];
+  const blocks = scriptText.replace(/\r/g, "").split(/\n\s*\n/);
+  for (const block of blocks) {
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    let para = null;
+    for (const line of lines) {
+      if (line.startsWith("#")) { para = null; const h = document.createElement("h2"); h.textContent = line.replace(/^#+\s*/, ""); root.append(h); continue; }
+      const cue = line.match(/^\[(.+)\]$/) || line.match(/^—\s*(.+?)\s*—$/);
+      if (cue) { para = null; const c = document.createElement("div"); c.className = "cue"; c.textContent = "— " + cue[1] + " —"; root.append(c); continue; }
+      const isQuote = line.startsWith(">");
+      const text = isQuote ? line.replace(/^>\s?/, "") : line;
+      if (!para || para.dataset.q !== String(isQuote)) {
+        para = document.createElement("p"); para.dataset.q = String(isQuote);
+        if (isQuote) para.className = "quote";
+        root.append(para);
+      }
+      const ln = document.createElement("span"); ln.className = "ln";
+      text.split(/(\s+)/).forEach((tok) => {
+        if (!tok.trim()) { ln.append(tok); return; }
+        const s = document.createElement("span"); s.className = "w"; s.textContent = tok;
+        const n = norm(tok);
+        if (n) { s.dataset.i = words.length; words.push({ el: s, norm: n }); }
+        ln.append(s);
+      });
+      para.append(ln);
+    }
+  }
+  setPos(0, true);
+}
+
+function setPos(i, jump) {
+  i = Math.max(0, Math.min(words.length, i));
+  const lo = Math.min(pos, i), hi = Math.max(pos, i);
+  if (jump) words.forEach((w, k) => w.el.classList.toggle("read", k < i));
+  else for (let k = lo; k < hi; k++) words[k].el.classList.toggle("read", k < i);
+  words[pos]?.el.classList.remove("now");
+  pos = i;
+  words[pos]?.el.classList.add("now");
+  $("progress").style.width = (words.length ? (pos / words.length) * 100 : 0) + "%";
+  if (mode === "voice" || jump) aimAt(pos);
+}
+
+// ---- scrolling ----
+const stage = $("stage");
+let target = null, last = 0;
+function aimAt(i) {
+  const w = words[Math.min(i, words.length - 1)];
+  if (!w) return;
+  const r = w.el.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+  target = stage.scrollTop + (r.top - sr.top) - stage.clientHeight * 0.35 + r.height * 0.2;
+}
+function tick(t) {
+  const dt = Math.min(0.1, (t - last) / 1000 || 0); last = t;
+  if (running && mode === "auto") {
+    stage.scrollTop += speed * dt * (size / 44);
+    const line = stage.getBoundingClientRect().top + stage.clientHeight * 0.35;
+    let k = pos;
+    while (k < words.length && words[k].el.getBoundingClientRect().top < line - 4) k++;
+    if (k !== pos) { const keep = mode; mode = "x"; setPos(k); mode = keep; }
+  } else if (target !== null) {
+    const d = target - stage.scrollTop;
+    if (Math.abs(d) < 0.5) { stage.scrollTop = target; target = null; }
+    else stage.scrollTop += d * Math.min(1, dt * 6);
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// ---- voice matching ----
+function close(a, b) {
+  if (a === b) return true;
+  if (a.length >= 5 && b.length >= 5 && a.slice(0, 4) === b.slice(0, 4)) return true;
+  if (a.length < 4 || b.length < 4 || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+function hear(spoken) {
+  const toks = spoken.split(/\s+/).map(norm).filter(Boolean);
+  let prev = null;
+  for (const w of toks) {
+    const end = Math.min(words.length, pos + 24);
+    for (let k = pos; k < end; k++) {
+      if (!close(w, words[k].norm)) continue;
+      const gap = k - pos;
+      const strong = !STOP.has(w) && w.length >= 4;
+      const chained = prev !== null && k > 0 && close(prev, words[k - 1].norm);
+      if (gap <= 2 || strong || chained) { setPos(k + 1); break; }
+    }
+    prev = w;
+  }
+}
+let partialDone = 0;
+function onPartial(text) {
+  const toks = text.trim() ? text.trim().split(/\s+/) : [];
+  if (toks.length < partialDone) partialDone = 0;
+  if (toks.length > partialDone) { hear(toks.slice(partialDone).join(" ")); partialDone = toks.length; }
+  $("heard").textContent = text ? "“" + text.slice(-60) + "”" : "";
+}
+function onFinal(text) {
+  const toks = text.trim().split(/\s+/);
+  if (toks.length > partialDone) hear(toks.slice(partialDone).join(" "));
+  partialDone = 0;
+}
+
+// ---- status ----
+function status(msg, warn) {
+  const s = $("status");
+  s.className = warn ? "warn" : "";
+  s.textContent = msg;
+  if (!warn) { const h = document.createElement("span"); h.id = "heard"; s.append(" ", h); }
+}
+function idleStatus() {
+  if (mode === "voice") {
+    if (dictReady && dict) status("Press Start and begin reading. Tap any word to jump there.");
+    else if (dictReady) status("This browser can't listen to speech. Use Auto scroll instead.", true);
+    else status("Getting voice follow ready…");
+  } else status("Press Start. Space bar pauses. Arrow keys nudge.");
+}
+
+// ---- start / stop ----
+async function keepAwake() { try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {} }
+function stopRun() {
+  running = false; document.body.classList.remove("running", "idle");
+  $("go").textContent = "Start"; $("go").classList.remove("on");
+  try { wakeLock?.release(); } catch {} wakeLock = null;
+  if (dict && dict.active()) dict.stop().catch(() => {});
+  idleStatus();
+}
+function startRun() {
+  if (mode === "voice") {
+    if (!dict) { idleStatus(); return; }
+    partialDone = 0;
+    dict.start().catch((e) => {
+      const msgs = {
+        not_granted: "Microphone access is blocked. Allow it for this site in your browser settings, or use Auto scroll.",
+        dismissed: "The microphone question was closed. Press Start again to answer it.",
+        unavailable: "Voice follow isn't available for this account or browser. Use Auto scroll instead.",
+        rate_limited: "Too many dictation sessions at once. Wait a moment and press Start again.",
+        stopped: "Stopped."
+      };
+      stopRun();
+      status(msgs[e && e.code] || "The microphone or speech service failed. Press Start to try again, or use Auto scroll.", true);
+    });
+  }
+  running = true; document.body.classList.add("running");
+  $("go").textContent = "Pause"; $("go").classList.add("on");
+  if (mode === "auto") status("Scrolling. Space bar pauses.");
+  keepAwake();
+  armIdle();
+}
+// start() must run synchronously inside the click
+$("go").addEventListener("click", () => running ? stopRun() : startRun());
+
+let idleTimer;
+function armIdle() {
+  document.body.classList.remove("idle");
+  clearTimeout(idleTimer);
+  if (running) idleTimer = setTimeout(() => document.body.classList.add("idle"), 2500);
+}
+["mousemove", "touchstart"].forEach((ev) => addEventListener(ev, armIdle, { passive: true }));
+
+// ---- controls ----
+function applyMode() {
+  $("m-" + mode).checked = true;
+  $("speedGroup").hidden = mode !== "auto";
+  store.set("mode", mode);
+}
+document.querySelectorAll('input[name=mode]').forEach((r) => r.addEventListener("change", () => {
+  if (running) stopRun();
+  mode = r.value; applyMode(); idleStatus();
+}));
+$("speed").value = speed;
+$("speed").addEventListener("input", (e) => { speed = +e.target.value; store.set("speed", speed); });
+function applySize() { document.documentElement.style.setProperty("--size", size + "px"); $("size").value = size; store.set("size", size); aimAt(pos); }
+$("size").addEventListener("input", (e) => { size = +e.target.value; applySize(); });
+function applyMirror() { document.body.classList.toggle("mirror", mirror); $("mirror").setAttribute("aria-pressed", String(mirror)); store.set("mirror", mirror); }
+$("mirror").addEventListener("click", () => { mirror = !mirror; applyMirror(); });
+$("top").addEventListener("click", () => { setPos(0, true); });
+$("full").addEventListener("click", () => {
+  const p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
+  Promise.resolve(p).catch(() => status("Full screen isn't available in this view.", true));
+});
+$("script").addEventListener("click", (e) => {
+  const w = e.target.closest(".w[data-i]");
+  if (w) setPos(+w.dataset.i, true);
+});
+stage.addEventListener("wheel", () => { if (mode === "voice") target = null; }, { passive: true });
+
+addEventListener("keydown", (e) => {
+  if (!$("editor").hidden || e.target.closest("input, textarea")) return;
+  if (e.code === "Space") { e.preventDefault(); $("go").click(); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); if (mode === "auto") stage.scrollTop += 60; else setPos(pos + 5, true); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); if (mode === "auto") stage.scrollTop -= 60; else setPos(pos - 5, true); }
+  else if (e.key === "Home") { setPos(0, true); }
+  else if (e.key === "+" || e.key === "=") { size = Math.min(90, size + 2); applySize(); }
+  else if (e.key === "-") { size = Math.max(22, size - 2); applySize(); }
+  armIdle();
+});
+
+// ---- editor ----
+$("edit").addEventListener("click", () => { if (running) stopRun(); $("src").value = scriptText; $("editor").hidden = false; $("src").focus(); });
+$("cancel").addEventListener("click", () => { $("editor").hidden = true; });
+$("restore").addEventListener("click", () => { $("src").value = DEFAULT_SCRIPT; });
+$("save").addEventListener("click", () => {
+  scriptText = $("src").value; store.set("script", scriptText);
+  $("editor").hidden = true; pos = 0; render(); status("Script updated.");
+});
+
+// ---- boot ----
+applyMode(); applySize(); applyMirror(); render(); idleStatus();
+(function () {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  dictReady = true;
+  if (!SR) {
+    $("m-voice").disabled = true;
+    $("m-voice").nextElementSibling.style.opacity = ".4";
+    mode = "auto"; applyMode();
+    status("This browser can't listen to speech. Use Safari on iPhone, or Chrome or Edge on a computer. Auto scroll is on.");
+    return;
+  }
+  let rec = null, listening = false, wanted = false, failed = null;
+  const finals = new Map();
+  function make() {
+    const r = new SR();
+    r.lang = "en-US"; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+    r.onstart = () => { listening = true; status("Listening. Read at your own pace."); };
+    r.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i], t = res[0].transcript;
+        if (res.isFinal) { if (!finals.has(i)) { finals.set(i, true); onFinal(t); } }
+        else interim += t;
+      }
+      onPartial(interim);
+    };
+    r.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") failed = "Microphone access is blocked. Allow the microphone for this site in your browser settings, or use Auto scroll.";
+      else if (e.error === "audio-capture") failed = "No microphone was found. Use Auto scroll instead.";
+      else if (e.error === "network") failed = "Speech recognition needs an internet connection. Use Auto scroll if you're offline.";
+    };
+    r.onend = () => {
+      listening = false; finals.clear(); partialDone = 0;
+      if (failed) { const m = failed; failed = null; wanted = false; stopRun(); status(m, true); return; }
+      if (wanted && running && mode === "voice") { try { rec = make(); rec.start(); } catch {} }
+    };
+    return r;
+  }
+  dict = {
+    start() {
+      wanted = true; failed = null;
+      try { rec = make(); rec.start(); return Promise.resolve(); }
+      catch (err) { return Promise.reject({ code: "upstream_error" }); }
+    },
+    stop() { wanted = false; try { rec && rec.stop(); } catch {} return Promise.resolve(); },
+    active() { return wanted; }
+  };
+  if (!running) idleStatus();
+})();
+</script>
+</body>
+</html>
