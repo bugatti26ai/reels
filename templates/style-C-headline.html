@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:1080px;height:1920px;overflow:hidden}canvas{position:absolute}
+#n{position:absolute;top:330px;left:0;right:0;text-align:center;font-family:Anton;font-size:460px;line-height:1;color:#c8102e;letter-spacing:-8px;text-shadow:10px 10px 0 #1b1b1b}
+#t{position:absolute;top:880px;left:70px;right:70px;text-align:center;font-family:'Archivo Black';font-size:104px;line-height:1.02;color:#111;text-transform:uppercase}
+#t span{background:#ffd23f;padding:0 14px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+#tag{position:absolute;top:270px;left:0;right:0;text-align:center;font-family:Poppins;font-weight:700;font-size:36px;letter-spacing:.2em;color:#111}
+#tag b{background:#111;color:#f3ecdd;padding:6px 18px}
+#s{position:absolute;top:1340px;left:110px;right:110px;text-align:center;font-family:Lora;font-style:italic;font-size:54px;color:#2a2a2a}
+</style></head><body><canvas id="c" width="1080" height="1920"></canvas>
+<div id="tag"><b>NEW DATA</b></div>
+<div id="n">2035</div>
+<div id="t"><span>He said it</span><br><span>1,400 years</span><br><span>ago?</span></div>
+<div id="s">The world’s largest religion</div>
+<script src="common.js"></script><script>
+X.fillStyle='#f3ecdd';X.fillRect(0,0,W,H);
+// newsprint columns faint
+X.fillStyle='rgba(0,0,0,.06)';for(let c=0;c<4;c++)for(let y=1500;y<H;y+=26)X.fillRect(60+c*250,y,210*(0.6+r()*.4),10);
+for(let y=60;y<240;y+=26)for(let c=0;c<4;c++)X.fillRect(60+c*250,y,210*(0.6+r()*.4),10);
+// torn paper strip behind number
+X.fillStyle='#e4dac4';X.beginPath();X.moveTo(0,360);for(let x=0;x<=W;x+=30)X.lineTo(x,350+r()*30);X.lineTo(W,860);for(let x=W;x>=0;x-=30)X.lineTo(x,850+r()*30);X.fill();
+// halftone dots
+for(let y=380;y<850;y+=22)for(let x=0;x<W;x+=22){const d=Math.max(0,1-Math.hypot(x-900,y-450)/500);if(d>0){X.fillStyle='rgba(200,16,46,.18)';X.beginPath();X.arc(x,y,d*9,0,7);X.fill()}}
+// rising bar chart icon
+const bx=360,by=1300;[[0,90],[1,150],[2,230],[3,330]].forEach(([i,h])=>{X.fillStyle=i==3?'#c8102e':'#1b1b1b';X.fillRect(bx+i*95,by-h-40,70,h)});
+X.fillStyle='rgba(0,0,0,.0)';grain(.05);
+</script></body></html>

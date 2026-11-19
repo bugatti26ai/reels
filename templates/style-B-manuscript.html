@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#000}canvas{position:absolute}
+#k{position:absolute;top:470px;left:0;right:0;text-align:center;font-family:Poppins;font-weight:600;letter-spacing:.35em;font-size:34px;color:#e9c46a}
+#t{position:absolute;top:540px;left:60px;right:60px;text-align:center;font-family:Lora;font-weight:700;font-size:132px;line-height:1.05;color:#f6ead0;text-shadow:0 6px 40px rgba(0,0,0,.9)}
+#t i{color:#e9c46a;font-style:italic}
+#line{position:absolute;top:850px;left:340px;width:400px;height:2px;background:linear-gradient(90deg,transparent,#e9c46a,transparent)}
+</style></head><body><canvas id="c" width="1080" height="1920"></canvas>
+<div id="k">1,400 YEARS AGO</div>
+<div id="t">He said we’d be<br>the <i>most</i>?</div><div id="line"></div>
+<script src="common.js"></script><script>
+X.fillStyle=lin(0,H,[[0,'#05070f'],[.5,'#0c1424'],[1,'#03040a']]);X.fillRect(0,0,W,H);
+// geometric pattern faint
+X.strokeStyle='rgba(233,196,106,.07)';X.lineWidth=2;for(let y=0;y<H;y+=180)for(let x=(y/180%2)*90;x<W+90;x+=180){star8(x,y,70,48,Math.PI/8);X.stroke()}
+// parchment manuscript lower
+glow(540,1300,700,'233,180,90',.35);
+X.save();X.translate(540,1330);X.rotate(-.04);
+const pw=640,ph=520;X.shadowColor='rgba(0,0,0,.8)';X.shadowBlur=60;
+let g=X.createLinearGradient(-pw/2,0,pw/2,0);g.addColorStop(0,'#b8894c');g.addColorStop(.5,'#e8cf9c');g.addColorStop(1,'#b8894c');X.fillStyle=g;
+X.beginPath();X.moveTo(-pw/2,-ph/2);for(let x=-pw/2;x<=pw/2;x+=20)X.lineTo(x,-ph/2+Math.sin(x*.05)*6);X.lineTo(pw/2,ph/2);for(let x=pw/2;x>=-pw/2;x-=20)X.lineTo(x,ph/2+Math.sin(x*.07)*8);X.closePath();X.fill();X.shadowBlur=0;
+// ink lines (abstract script, not text)
+X.strokeStyle='rgba(60,35,15,.75)';X.lineWidth=5;X.lineCap='round';
+for(let l=0;l<9;l++){const y=-ph/2+70+l*48;X.beginPath();let x=pw/2-50;X.moveTo(x,y);while(x>-pw/2+50){const w=20+r()*50;X.quadraticCurveTo(x-w/2,y-10-r()*16,x-w,y);x-=w+8+r()*14;X.moveTo(x,y)}X.stroke()}
+// gold medallion
+X.fillStyle='rgba(233,196,106,.9)';star8(0,-ph/2+10,46,30,0);X.fill();
+X.restore();
+// light beam from above onto manuscript
+X.globalCompositeOperation='lighter';g=X.createLinearGradient(0,0,0,1300);g.addColorStop(0,'rgba(255,220,150,0)');g.addColorStop(1,'rgba(255,220,150,.16)');X.fillStyle=g;X.beginPath();X.moveTo(470,0);X.lineTo(610,0);X.lineTo(900,1350);X.lineTo(180,1350);X.fill();
+for(let i=0;i<60;i++)glow(300+r()*480,200+r()*1100,4+r()*8,'255,220,160',.5*r());
+X.globalCompositeOperation='source-over';
+const v=X.createRadialGradient(540,960,400,540,960,1200);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(0,0,0,.7)');X.fillStyle=v;X.fillRect(0,0,W,H);grain(.06);
+</script></body></html>
